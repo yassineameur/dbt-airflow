@@ -1,0 +1,100 @@
+import time
+from typing import Dict, Any
+from http import HTTPStatus
+
+import pendulum
+import requests
+
+from airflow import DAG
+from airflow.utils.dates import datetime
+from airflow.utils.decorators import apply_defaults
+from airflow.utils.task_group import TaskGroup
+
+from airflow.models import Variable, BaseOperator
+from airflow.exceptions import AirflowException
+
+from operators.callbacks import DagCallback
+
+from operators.constants import (DAG_DEFAULT_ARGS,
+                                 DBT_EMAIL_VARIABLE_NAME)
+from airflow.exceptions import AirflowSkipException
+
+import google
+import google.auth.transport.requests
+from google.oauth2 import id_token
+
+class ExecuteDBTJob(BaseOperator):
+
+    @apply_defaults
+    def __init__(self, test_or_run: str, model_name: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.test_or_run = test_or_run
+        self.model_name = model_name
+
+    def execute(self, context: Dict[str, Any]):
+
+        cloud_run_url = Variable.get("CLOUD_RUN_URL")
+
+        auth_req = google.auth.transport.requests.Request()
+        id_token = google.oauth2.id_token.fetch_id_token(auth_req, cloud_run_url)
+
+        dbt_route = cloud_run_url + f"/{self.test_or_run}_model"
+        params = {"model_name": self.model_name}
+
+        headers = {"Authorization": f"Bearer {id_token}"}
+        self.log.info(f"Calling {dbt_route} with params {params}")
+        response = requests.post(dbt_route, params=params, timeout=1500, headers=headers)
+        response.raise_for_status()
+
+        resp = response.json()
+        if resp.get("skip_job") is True:
+            raise AirflowSkipException()
+        job_id = resp["job_id"]
+
+        # we check for 20 minutes, the job status
+        time.sleep(20)
+        i = 0
+        job_route = cloud_run_url + "/job"
+        while i < 75:
+            self.log.info(f"Checking job {job_id} ...")
+            job_status_req = requests.get(job_route, params={"job_id": job_id}, headers=headers)
+            job_status_req.raise_for_status()
+            job_status = job_status_req.json()["job_status"]
+            self.log.info(f"Job status fetched: {job_status}")
+            if job_status == "failed":
+                raise AirflowException(f"Job {job_id} failed")
+            if job_status == "success":
+                return
+            i += 1
+            # we wait for 1 minute
+            time.sleep(15)
+        raise AirflowException("No response in time")
+
+default_args = {
+    "owner": 'airflow',
+    "start_date": datetime(2022, 1, 1, tzinfo=pendulum.timezone("Europe/Paris")),
+    "depends_on_past": False,
+    "retries": 0,
+    "priority_weight": 1
+}
+
+{% for dag in dags %}
+
+with DAG(
+        dag_id="{{dag.name}}",
+        schedule_interval={{dag.schedule}},
+        default_args=default_args,
+        max_active_runs=1,
+        on_failure_callback=DagCallback(email_variable_name=DBT_EMAIL_VARIABLE_NAME).handle_failure,
+        on_success_callback=DagCallback(email_variable_name=DBT_EMAIL_VARIABLE_NAME).handle_success,
+        catchup=False
+) as {{dag.name}}:
+    {% for dbt_task_expression in dag.tasks_list_expressions %}
+    {{ dbt_task_expression }}
+    {% endfor %}
+    # models dependencies
+    {% for tasks_dependency_expression in dag.tasks_dependencies_expressions %}
+    {{ tasks_dependency_expression }}
+    {% endfor %}
+
+{% endfor %}

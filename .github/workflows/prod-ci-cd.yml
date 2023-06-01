@@ -1,0 +1,21 @@
+name: 1. Prod CI/CD
+on: workflow_dispatch
+
+
+jobs:
+
+  CI:
+    uses: WineServices/api-dbt/.github/workflows/reusable-ci.yml@main
+
+  CD:
+    uses: WineServices/api-dbt/.github/workflows/reusable-cd.yml@main
+    with:
+      region: "europe-west1"
+      resource_name: ${{ github.event.repository.name }}
+      env_name: "prod"
+    secrets:
+      project_id: ${{ secrets.PROD_GCP_PROJECT_ID }}
+      sa_json_key: ${{ secrets.GCP_SA_KEY_JSON }}
+      composer_bucket: ${{ secrets.PROD_COMPOSER_BUCKET_NAME }}
+      database_url: ${{ secrets.PROD_DATABASE_URL }}
+    needs: CI

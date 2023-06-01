@@ -1,0 +1,85 @@
+name: Reusable DBT CI
+on: workflow_call
+
+env:
+  DBT_PROFILES_DIR: ${{ github.workspace }}/api_dbt
+  PYTHONPATH: ${{ github.workspace }}/api_dbt
+
+jobs:
+
+  dbt-compile:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:11-3.2
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+          architecture: 'x64'
+
+      - name: install requirements
+        run: pip install -r requirements.txt -r requirements-tests.txt -r requirements-migrations.txt
+
+      - name: run tests
+        run: pytest --ignore api_dbt/migrations -vv
+
+      - name: dbt compile
+        env:
+          DBT_PROFILES_DIR: ${{ github.workspace }}/api_dbt
+        run: cd api_dbt/ && dbt compile
+
+      - name: Archive manifest file
+        uses: actions/upload-artifact@v2
+        with:
+          name: dbt-manifest
+          path: |
+            api_dbt/target/manifest.json
+          retention-days: 1
+
+  dag-build:
+    runs-on: ubuntu-latest
+    needs: dbt-compile
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+      - name: install jinja
+        run: pip install jinja2
+
+      - name: Download manifest artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: dbt-manifest
+
+      - name: install dependencies
+        run: pip install -r requirements.txt
+
+      - name: build dbt dag
+        env:
+          DBT_PROFILES_DIR: ${{ github.workspace }}/api_dbt
+        run: python devops/generate_dbt_dag.py
+
+      - name: Archive dag file
+        uses: actions/upload-artifact@v2
+        with:
+          name: dbt-dag
+          path: |
+            dbt_dag.py
+          retention-days: 1

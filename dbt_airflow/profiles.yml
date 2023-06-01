@@ -1,0 +1,12 @@
+airflow_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: 'postgres'
+      threads: 2
+      host: "{{ env_var('PG_HOST', 'localhost') }}"
+      port: 5432
+      user: "{{ env_var('PG_USER', 'postgres') }}"
+      password: "{{ env_var('PG_PASSWORD', 'postgres') }}"
+      dbname: "{{ env_var('PG_DBNAME', 'postgres') }}"
+      schema: 'public'

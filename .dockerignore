@@ -1,0 +1,10 @@
+Dockerfile
+README.md
+*.pyc
+*.pyo
+*.pyd
+__pycache__/*
+.pytest_cache
+.user.yml
+target/*
+setup_db.py

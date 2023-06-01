@@ -1,0 +1,9 @@
+name: 3- PR CI
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/*
+jobs:
+  CI:
+    uses: WineServices/api-dbt/.github/workflows/reusable-ci.yml@main

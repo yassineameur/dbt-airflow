@@ -1,0 +1,16 @@
+selectors:
+
+  - name: stats
+    definition:
+      method: tag
+      value: stats
+      # run nightly at 1am:
+      schedule: "0 1 * * *"
+    
+      # Optional keywords map to the `+` and `@` operators:
+      children: false
+      parents: true
+
+      parents_depth: 1000
+
+      indirect_selection: eager

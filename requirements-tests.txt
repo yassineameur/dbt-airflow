@@ -1,0 +1,8 @@
+pytest==5.0.0
+pytest-cache==1.0
+pytest-cov==2.10.1
+pytest-mock==3.3.1
+coverage==5.3
+pylint==2.6.0
+isort==5.4.2
+mypy==0.931

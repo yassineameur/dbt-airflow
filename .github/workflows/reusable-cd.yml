@@ -1,0 +1,87 @@
+name: Cloud run deployment
+on: 
+  workflow_call:
+    inputs:
+      region:
+        required: true
+        type: string
+      resource_name:
+        required: true
+        type: string
+      env_name:
+        required: true
+        type: string
+        
+    secrets:
+      project_id:
+        required: true
+      sa_json_key:
+        required: true
+      composer_bucket:
+        required: true
+      database_url:
+        required: true
+
+env:
+  PROJECT_ID: ${{ secrets.project_id }}
+  SA_KEY_JSON: ${{ secrets.sa_json_key }}
+  COMPOSER_BUCKET: ${{ secrets.composer_bucket }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+
+  cloud-run-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+      - run: echo "Deploying clound run ${{ inputs.resource_name }} into project ${{ env.PROJECT_ID }}  on region ${{ inputs.region }}"
+      - id: 'auth'
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v0
+        with:
+          credentials_json: ${{ secrets.sa_json_key }}
+          project_id: ${{ secrets.project_id }}
+
+      - name: setup gcloud
+        uses: google-github-actions/setup-gcloud@v0
+
+      - name: install beta
+        run: gcloud components install beta
+
+      - name: build
+        run: gcloud builds submit --tag gcr.io/$PROJECT_ID/${{ inputs.resource_name }}:${{ inputs.env_name }}
+      - name: deploy
+        run: gcloud beta run deploy ${{ inputs.resource_name }} --image gcr.io/$PROJECT_ID/${{ inputs.resource_name }}:${{ inputs.env_name }} --update-env-vars="USE_CLOUD_LOGGER=True" --set-secrets="PG_HOST=PG_HOST:latest,PG_DBNAME=PG_DBNAME:latest,PG_USER=PG_USER:latest,PG_PASSWORD=PG_PASSWORD:latest,PG_NEGOCIANT_WS_HOST=PG_NEGOCIANT_WS_HOST:latest,PG_NEGOCIANT_WS_DBNAME=PG_NEGOCIANT_WS_DBNAME:latest,PG_NEGOCIANT_WS_USER=PG_NEGOCIANT_WS_USER:latest,PG_NEGOCIANT_WS_PASSWORD=PG_NEGOCIANT_WS_PASSWORD:latest,FILES_SERVICE_URL=FILES_SERVICE_URL:latest,BACKEND_API_SERVICE_URL=BACKEND_API_SERVICE_URL:latest" --platform managed --region ${{ inputs.region }} --quiet
+
+  composer-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          architecture: 'x64'
+      - name: install depencies
+        run: pip install -r devops/requirements.txt
+      - name: Download dag artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: dbt-dag
+      - name: Deploy dag to composer cloud storage
+        run: python devops/deploy_dbt_dag.py
+
+  run-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          architecture: 'x64'
+      - name: install depencies
+        run: pip install -r requirements-migrations.txt
+      - name: run migrations
+        run: cd api_dbt/ && alembic upgrade head

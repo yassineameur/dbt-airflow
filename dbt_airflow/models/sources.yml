@@ -1,0 +1,7 @@
+version: 2
+
+sources:
+  - name: public
+    tables:
+      - name: example
+        description: This table has crude information about web checks coming from wine decider, with a few filters.
